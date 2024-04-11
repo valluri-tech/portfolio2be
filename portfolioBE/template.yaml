@@ -12,21 +12,21 @@ Globals:
 
 Resources:
 
-  HelloWorldFunction:
+  ProfileHitsFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
-      Role: !GetAtt HelloWorldFunctionExecutionRole.Arn
-      CodeUri: hello-world/
+      Role: !GetAtt ProfileHitsFunctionExecutionRole.Arn
+      CodeUri: profile-hits/
       Handler: app.lambdaHandler
       Runtime: nodejs18.x
       Architectures:
       - x86_64
-      Events:
-        HelloWorld:
-          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
-          Properties:
-            Path: /hello
-            Method: get
+      # Events:
+      #   HelloWorld:
+      #     Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+      #     Properties:
+      #       Path: /profilehits
+      #       Method: post
     Metadata: # Manage esbuild properties
       BuildMethod: esbuild
       BuildProperties:
@@ -36,7 +36,7 @@ Resources:
         EntryPoints:
         - app.ts
 
-  HelloWorldFunctionExecutionRole:
+  ProfileHitsFunctionExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       Description: This is a Role for Lambda to talk to DynamoDB
@@ -69,6 +69,15 @@ Resources:
                   - logs:PutLogEvents
                 Resource: '*'
 
+  profileHitsFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ProfileHitsFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Join [ "", [ "arn:aws:execute-api:", {"Ref": "AWS::Region"}, ":", {"Ref": "AWS::AccountId"}, ":", !Ref PortfolioApi, "/*/*/*" ] ] 
+
   DynamoDBTable:
    Type: AWS::DynamoDB::Table
    Properties:
@@ -86,6 +95,51 @@ Resources:
     ProvisionedThroughput:
       ReadCapacityUnits: 1
       WriteCapacityUnits: 1
+
+  PortfolioApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Body:
+        openapi: "3.0.1"
+        info:
+          title: "portfolio"
+          version: "2024-04-11 00:36:47UTC"
+        paths:
+          /portfolio:
+            get:
+              responses:
+                default:
+                  description: "Default response for GET /portfolio"
+              x-amazon-apigateway-integration:
+                payloadFormatVersion: "2.0"
+                type: "aws_proxy"
+                httpMethod: "POST"
+                uri: !Sub  "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProfileHitsFunction.Arn}/invocations"
+                connectionType: "INTERNET"
+            post:
+              responses:
+                default:
+                  description: "Default response for POST /portfolio"
+              x-amazon-apigateway-integration:
+                payloadFormatVersion: "2.0"
+                type: "aws_proxy"
+                httpMethod: "POST"
+                uri: !Sub  "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ProfileHitsFunction.Arn}/invocations"
+                connectionType: "INTERNET"
+        x-amazon-apigateway-importexport-version: "1.0"
+
+  PortfolioApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref PortfolioApi
+      StageName: prod
+
+  PortfolioApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      # StageName: "prod"
+      RestApiId: !Ref PortfolioApi
+      DeploymentId: !Ref PortfolioApiDeployment
 
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group
@@ -106,15 +160,18 @@ Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  HelloWorldApi:
-    Description: API Gateway endpoint URL for Prod stage for Hello World function
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
-  HelloWorldFunction:
+  # HelloWorldApi:
+  #   Description: API Gateway endpoint URL for Prod stage for Hello World function
+  #   Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/profilehits/"
+  ProfileHitsFunction:
     Description: Hello World Lambda Function ARN
-    Value: !GetAtt HelloWorldFunction.Arn
+    Value: !GetAtt ProfileHitsFunction.Arn
   DynammoDBARN:
     Description: Portfolio requests are saved here
     Value: !GetAtt DynamoDBTable.Arn
-  # HelloWorldFunctionIamRole:
+  PortfolioApiID:
+    Description: Portfolio API ID
+    Value: !Ref PortfolioApi
+  # ProfileHitsFunctionIamRole:
   #   Description: Implicit IAM Role created for Hello World function
-  #   Value: !GetAtt HelloWorldFunctionRole.Arn
+  #   Value: !GetAtt ProfileHitsFunctionRole.Arn
