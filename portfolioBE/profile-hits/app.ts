@@ -1,7 +1,13 @@
-import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { APIGatewayProxyEvent, APIGatewayProxyEventQueryStringParameters, APIGatewayProxyResult } from 'aws-lambda';
 // import AWS from 'aws-sdk';
 // AWS.config.update({ region: 'ap-southeast-2' });
-import DynamoDB, { PutItemInput, PutItemOutput, PutItemInputAttributeMap } from 'aws-sdk/clients/dynamodb';
+import DynamoDB, {
+    PutItemInput,
+    PutItemOutput,
+    PutItemInputAttributeMap,
+    GetItemInput,
+    QueryInput,
+} from 'aws-sdk/clients/dynamodb';
 const dynamoDB = new DynamoDB({});
 
 /**
@@ -20,12 +26,17 @@ async function HandlePostRequest(userAgent: string, location: string) {
     let [pkDate, skTime] = dateStr.split('T');
     skTime = skTime.replace(/[:.]/g, '#').slice(0, skTime.length - 1);
 
+    let pkDateFormatted = pkDate.slice(0, 7); //.replace('-', '');
+    // Extracted the Year and Month - which will become the primary key - and replace : with -
+    let day = pkDate.slice(8, 10);
+    let skFormatted = day + '#' + skTime;
     const Item: PutItemInputAttributeMap = {
-        Date: { S: pkDate },
-        Time: { S: skTime },
+        YM: { S: pkDateFormatted },
+        DHMS: { S: skFormatted },
         UserAgent: { S: userAgent },
         Location: { S: location },
     };
+
     const TableName = 'portfoliorequests';
     const input: PutItemInput = {
         TableName,
@@ -50,20 +61,43 @@ async function HandlePostRequest(userAgent: string, location: string) {
     return {
         statusCode: 200,
         body: JSON.stringify({
-            message: 'Hello world - from Satya',
+            message: 'POST: Portfolio request executed successfully',
         }),
     };
 }
 
-function HandleGetRequest() {}
+async function HandleGetRequest(exclusiveStartKey: any) {
+    console.log({ exclusiveStartKey });
+    const TableName = 'portfoliorequests';
+
+    let qInput: QueryInput = {
+        TableName,
+        KeyConditionExpression: '#YearAndMonth = :v1 AND #DayHourMinSec <= :v2',
+        ExpressionAttributeNames: { '#YearAndMonth': 'YM', '#DayHourMinSec': 'DHMS' },
+        ExpressionAttributeValues: {
+            ':v1': { S: '2024-04' },
+            ':v2': { S: '12#21#43#28#669' },
+        },
+        Limit: 2,
+    };
+
+    if (exclusiveStartKey) {
+        qInput = { ...qInput, ExclusiveStartKey: exclusiveStartKey };
+    }
+    const res = await dynamoDB.query(qInput).promise();
+
+    console.log(JSON.stringify(res));
+    return {
+        statusCode: 200,
+        body: JSON.stringify(res),
+    };
+}
 
 export const lambdaHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
     try {
         console.log(event);
-        const userAgent = event?.requestContext?.identity?.userAgent || '';
-        const location = event?.requestContext?.identity?.sourceIp || '';
-        const method = event.httpMethod;
 
+        const method = event.httpMethod;
         if (!['POST', 'GET'].includes(event.httpMethod)) {
             return {
                 statusCode: 405,
@@ -75,10 +109,23 @@ export const lambdaHandler = async (event: APIGatewayProxyEvent): Promise<APIGat
 
         switch (event.httpMethod) {
             case 'POST':
+                const userAgent = event?.requestContext?.identity?.userAgent || '';
+                const location = event?.requestContext?.identity?.sourceIp || '';
                 return await HandlePostRequest(userAgent, location);
             case 'GET':
-                return await HandleGetRequest();
+                let esk = null;
+                if (event?.queryStringParameters?.LastEvaluatedKey) {
+                    esk = JSON.parse(event?.queryStringParameters?.LastEvaluatedKey);
+                }
+                //SAMPLE : event.queryStringParameters: { LEK: '{"YM":{"S":"2024-04"},"DHMS":{"S":"02#22#47#07#387"}}\n' },
+                return await HandleGetRequest(esk);
             default:
+                return {
+                    statusCode: 200,
+                    body: JSON.stringify({
+                        message: 'Neither Get nor Post - Very rare',
+                    }),
+                };
                 break;
         }
     } catch (err) {

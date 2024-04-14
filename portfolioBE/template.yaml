@@ -83,14 +83,14 @@ Resources:
    Properties:
     TableName: portfoliorequests
     KeySchema:
-      - AttributeName: "Date"
+      - AttributeName: "YM"    # Year & Month
         KeyType: HASH
-      - AttributeName: "Time"
+      - AttributeName: "DHMS"  # Day & hr:min:ss
         KeyType: RANGE
     AttributeDefinitions: 
-      - AttributeName: Date
+      - AttributeName: YM
         AttributeType: S
-      - AttributeName: Time
+      - AttributeName: DHMS
         AttributeType: S
     ProvisionedThroughput:
       ReadCapacityUnits: 1
@@ -99,6 +99,7 @@ Resources:
   PortfolioApi:
     Type: AWS::ApiGateway::RestApi
     Properties:
+      # OpenApiVersion: '2.0' # Prevents the default stage getting created - But SAM error
       Body:
         openapi: "3.0.1"
         info:
@@ -141,30 +142,67 @@ Resources:
       RestApiId: !Ref PortfolioApi
       DeploymentId: !Ref PortfolioApiDeployment
 
-  ApplicationResourceGroup:
-    Type: AWS::ResourceGroups::Group
-    Properties:
-      Name:
-        Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
-      ResourceQuery:
-        Type: CLOUDFORMATION_STACK_1_0
+# Step 1 : Create a custom domain name
+#   &
+# step 2 : Configure an Api mapping to the 'prod' stage
 
-  ApplicationInsightsMonitoring:
-    Type: AWS::ApplicationInsights::Application
+# Creation of this AWS::ApiGateway::DomainName takes time.
+  PortfolioAPIGWCustomDN:
+    Type: AWS::ApiGateway::DomainName
+    Properties: 
+      CertificateArn: arn:aws:acm:us-east-1:797195599298:certificate/ce5520b9-738b-4e47-9c07-eb94dff0467e
+      DomainName: api.valluri-tech.com
+      EndpointConfiguration:
+        Types:
+          - EDGE
+      SecurityPolicy: TLS_1_2
+
+  PortfolioBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
     Properties:
-      ResourceGroupName:
-        Ref: ApplicationResourceGroup
-      AutoConfigurationEnabled: 'true'
+      # BasePath: 
+      DomainName: api.valluri-tech.com
+      RestApiId: !Ref PortfolioApi
+      Stage: prod
+  
+#step 3 : Create a route53 record [A record + Alias + Alias to API Gateway API]
+# Creation of this AWS::Route53::RecordSet takes time.
+  PortfolioBackEndRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Type: A
+      HostedZoneId: Z0084746MR97D8YF1WRE
+      Name: api.valluri-tech.com
+      AliasTarget:
+        DNSName: !GetAtt PortfolioAPIGWCustomDN.DistributionDomainName
+        # EvaluateTargetHealth: Boolean
+        HostedZoneId: !GetAtt PortfolioAPIGWCustomDN.DistributionHostedZoneId
+
+
+  # ApplicationResourceGroup:
+  #   Type: AWS::ResourceGroups::Group
+  #   Properties:
+  #     Name:
+  #       Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
+  #     ResourceQuery:
+  #       Type: CLOUDFORMATION_STACK_1_0
+
+  # ApplicationInsightsMonitoring:
+  #   Type: AWS::ApplicationInsights::Application
+  #   Properties:
+  #     ResourceGroupName:
+  #       Ref: ApplicationResourceGroup
+  #     AutoConfigurationEnabled: 'true'
 
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
   # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
-  # HelloWorldApi:
-  #   Description: API Gateway endpoint URL for Prod stage for Hello World function
-  #   Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/profilehits/"
+#  PortfolioApi:
+#     Description: API Gateway endpoint URL for Prod stage for Hello World function
+#     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/portfolio/"
   ProfileHitsFunction:
-    Description: Hello World Lambda Function ARN
+    Description: Portfolio Function ARN
     Value: !GetAtt ProfileHitsFunction.Arn
   DynammoDBARN:
     Description: Portfolio requests are saved here
