@@ -27,13 +27,6 @@ const dynamoDB = new DynamoDB({});
 async function HandlePostRequest(userAgent: string, location: string) {
     let date = new Date();
     let dateStr = date.toISOString();
-    // let [pkDate, skTime] = dateStr.split('T');
-    // skTime = skTime.replace(/[:.]/g, '#').slice(0, skTime.length - 1);
-
-    // let pkDateFormatted = pkDate.slice(0, 7); //.replace('-', '');
-    // // Extracted the Year and Month - which will become the primary key and replace : with -
-    // let day = pkDate.slice(8, 10);
-    // let skFormatted = day + '#' + skTime;
 
     let [pkDate, skTime] = ['profileHit', dateStr.replace(/[-:T.]/g, '#').substring(0, dateStr.length - 1)];
     const Item: PutItemInputAttributeMap = {
@@ -98,11 +91,12 @@ async function HandlePostRequest(userAgent: string, location: string) {
     };
 }
 
-async function HandleGetRequest(exclusiveStartKey: any) {
+async function HandleGetRequest(lastEvaluatedKey: any, totalNumberRows: any) {
     // console.log({ exclusiveStartKey });
     const TableName = 'portfoliorequests';
 
     // Lets try to get the number of rows if it was not recieved from client.
+
     let getRowsCountInput: GetItemInput = {
         TableName,
         Key: {
@@ -111,6 +105,7 @@ async function HandleGetRequest(exclusiveStartKey: any) {
         },
         ProjectionExpression: 'rowCount',
     };
+
     let getRowsCountRes = await dynamoDB
         .getItem(getRowsCountInput)
         .promise()
@@ -118,27 +113,30 @@ async function HandleGetRequest(exclusiveStartKey: any) {
             return res?.Item?.rowCount?.N;
         })
         .catch((err) => console.log(err));
-    console.log(JSON.stringify(getRowsCountRes));
 
     // Query all the profile hits
+    let date = new Date();
+    let dateStr = date.toISOString();
+    let sk = dateStr.substring(0, dateStr.indexOf('T')).replace(/-/g, '#');
+    sk = sk + '#00#00#00#000';
     let getprofileHitRowsInput: QueryInput = {
         TableName,
         KeyConditionExpression: '#YearAndMonth = :v1 AND #DayHourMinSec <= :v2',
         ExpressionAttributeNames: { '#YearAndMonth': 'YM', '#DayHourMinSec': 'DHMS' },
         ExpressionAttributeValues: {
             ':v1': { S: 'profileHit' },
-            ':v2': { S: '2024#04#30#00#00#00#000' },
+            ':v2': { S: sk },
         },
         Limit: 2,
     };
 
-    if (exclusiveStartKey) {
-        getprofileHitRowsInput = { ...getprofileHitRowsInput, ExclusiveStartKey: exclusiveStartKey };
+    if (lastEvaluatedKey) {
+        getprofileHitRowsInput = { ...getprofileHitRowsInput, ExclusiveStartKey: lastEvaluatedKey };
     }
 
     let getprofileHitRowsRes = await dynamoDB.query(getprofileHitRowsInput).promise();
     let clientRes = { ...getprofileHitRowsRes, totalNumberRows: getRowsCountRes };
-    // console.log(JSON.stringify(res));
+
     return {
         statusCode: 200,
         body: JSON.stringify(clientRes),
@@ -151,9 +149,8 @@ async function HandleGetRequest(exclusiveStartKey: any) {
 }
 
 export const lambdaHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    console.log(event);
     try {
-        // console.log(event);
-
         const method = event.httpMethod;
         if (!['POST', 'GET'].includes(event.httpMethod)) {
             return {
@@ -170,12 +167,17 @@ export const lambdaHandler = async (event: APIGatewayProxyEvent): Promise<APIGat
                 const location = event?.requestContext?.identity?.sourceIp || '';
                 return await HandlePostRequest(userAgent, location);
             case 'GET':
-                let esk = null;
-                if (event?.queryStringParameters?.LastEvaluatedKey) {
-                    esk = JSON.parse(event?.queryStringParameters?.LastEvaluatedKey);
+                let LastEvaluatedKey = null;
+                let totalNumberRows = null;
+                if (event?.queryStringParameters && event?.queryStringParameters?.queryParams) {
+                    let qps = JSON.parse(event?.queryStringParameters?.queryParams);
+                    if (qps) {
+                        LastEvaluatedKey = qps?.LastEvaluatedKey;
+                        totalNumberRows = qps?.totalNumberRows;
+                    }
                 }
                 //SAMPLE : event.queryStringParameters: { LEK: '{"YM":{"S":"2024-04"},"DHMS":{"S":"02#22#47#07#387"}}\n' },
-                return await HandleGetRequest(esk);
+                return await HandleGetRequest(LastEvaluatedKey, totalNumberRows);
             default:
                 return {
                     statusCode: 200,

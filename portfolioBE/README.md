@@ -1,9 +1,10 @@
-# portfolioBE - PROJECT INFO
+# portfolioBE - API Description
 - We have only one endpoint which supports two methods [GET and POST] .
 - When website is visited get + uri is called. The first list of items is sent along with the total number of items .
-- 
 
-
+# portfolioBE - How to deploy
+- Go into the project and do npm install
+- sam build; sam deploy --profile personalRootUserAccount  
 
 # portfolioBE - INFRA
 
