@@ -1,4 +1,11 @@
-# portfolioBE
+# portfolioBE - PROJECT INFO
+- We have only one endpoint which supports two methods [GET and POST] .
+- When website is visited get + uri is called. The first list of items is sent along with the total number of items .
+- 
+
+
+
+# portfolioBE - INFRA
 
 This project contains source code and supporting files for a serverless application that you can deploy with the SAM CLI. It includes the following files and folders.
 

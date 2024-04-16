@@ -1,4 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyEventQueryStringParameters, APIGatewayProxyResult } from 'aws-lambda';
+import { AWSError } from 'aws-sdk';
 // import AWS from 'aws-sdk';
 // AWS.config.update({ region: 'ap-southeast-2' });
 import DynamoDB, {
@@ -6,8 +7,11 @@ import DynamoDB, {
     PutItemOutput,
     PutItemInputAttributeMap,
     GetItemInput,
+    GetItemOutput,
     QueryInput,
+    UpdateItemInput,
 } from 'aws-sdk/clients/dynamodb';
+import { PromiseResult } from 'aws-sdk/lib/request';
 const dynamoDB = new DynamoDB({});
 
 /**
@@ -23,16 +27,18 @@ const dynamoDB = new DynamoDB({});
 async function HandlePostRequest(userAgent: string, location: string) {
     let date = new Date();
     let dateStr = date.toISOString();
-    let [pkDate, skTime] = dateStr.split('T');
-    skTime = skTime.replace(/[:.]/g, '#').slice(0, skTime.length - 1);
+    // let [pkDate, skTime] = dateStr.split('T');
+    // skTime = skTime.replace(/[:.]/g, '#').slice(0, skTime.length - 1);
 
-    let pkDateFormatted = pkDate.slice(0, 7); //.replace('-', '');
-    // Extracted the Year and Month - which will become the primary key - and replace : with -
-    let day = pkDate.slice(8, 10);
-    let skFormatted = day + '#' + skTime;
+    // let pkDateFormatted = pkDate.slice(0, 7); //.replace('-', '');
+    // // Extracted the Year and Month - which will become the primary key and replace : with -
+    // let day = pkDate.slice(8, 10);
+    // let skFormatted = day + '#' + skTime;
+
+    let [pkDate, skTime] = ['profileHit', dateStr.replace(/[-:T.]/g, '#').substring(0, dateStr.length - 1)];
     const Item: PutItemInputAttributeMap = {
-        YM: { S: pkDateFormatted },
-        DHMS: { S: skFormatted },
+        YM: { S: pkDate },
+        DHMS: { S: skTime },
         UserAgent: { S: userAgent },
         Location: { S: location },
     };
@@ -43,23 +49,49 @@ async function HandlePostRequest(userAgent: string, location: string) {
         Item,
     };
 
-    const res = await dynamoDB
+    const profileHitRes = await dynamoDB
         .putItem(input, (err, output: PutItemOutput) => {
             if (err) console.log(err);
             if (output) console.log(output);
         })
         .promise()
         .then((data) => {
-            console.log('SUCCESS');
-            console.log(data.Attributes);
+            console.log('SUCCESS in entering Row : profile hit info');
+            // console.log(data.Attributes);
         })
         .catch((err) => {
             console.log('ERROR');
             console.log(err);
         });
+    console.log(profileHitRes);
+    const UpdateItemObj: UpdateItemInput = {
+        TableName,
+        Key: { YM: { S: 'MetaData' }, DHMS: { S: 'NumRows' } },
+        UpdateExpression: 'ADD rowCount :inc',
+        // UpdateExpression: 'SET rowCount = rowCount + :inc',
+        ExpressionAttributeValues: {
+            ':inc': { N: '0.5' },
+        },
+        ReturnValues: 'ALL_NEW',
+    };
 
+    const numRowsRes = await dynamoDB
+        .updateItem(UpdateItemObj, () => {})
+        .promise()
+        .then((data) => {
+            // console.log(data);
+        })
+        .catch((err) => {
+            console.log(err);
+        });
+    console.log(numRowsRes);
     return {
         statusCode: 200,
+        headers: {
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Allow-Origin': 'https://www.valluri-tech.com',
+            'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+        },
         body: JSON.stringify({
             message: 'POST: Portfolio request executed successfully',
         }),
@@ -67,35 +99,60 @@ async function HandlePostRequest(userAgent: string, location: string) {
 }
 
 async function HandleGetRequest(exclusiveStartKey: any) {
-    console.log({ exclusiveStartKey });
+    // console.log({ exclusiveStartKey });
     const TableName = 'portfoliorequests';
 
-    let qInput: QueryInput = {
+    // Lets try to get the number of rows if it was not recieved from client.
+    let getRowsCountInput: GetItemInput = {
+        TableName,
+        Key: {
+            YM: { S: 'MetaData' },
+            DHMS: { S: 'NumRows' },
+        },
+        ProjectionExpression: 'rowCount',
+    };
+    let getRowsCountRes = await dynamoDB
+        .getItem(getRowsCountInput)
+        .promise()
+        .then((res) => {
+            return res?.Item?.rowCount?.N;
+        })
+        .catch((err) => console.log(err));
+    console.log(JSON.stringify(getRowsCountRes));
+
+    // Query all the profile hits
+    let getprofileHitRowsInput: QueryInput = {
         TableName,
         KeyConditionExpression: '#YearAndMonth = :v1 AND #DayHourMinSec <= :v2',
         ExpressionAttributeNames: { '#YearAndMonth': 'YM', '#DayHourMinSec': 'DHMS' },
         ExpressionAttributeValues: {
-            ':v1': { S: '2024-04' },
-            ':v2': { S: '12#21#43#28#669' },
+            ':v1': { S: 'profileHit' },
+            ':v2': { S: '2024#04#30#00#00#00#000' },
         },
         Limit: 2,
     };
 
     if (exclusiveStartKey) {
-        qInput = { ...qInput, ExclusiveStartKey: exclusiveStartKey };
+        getprofileHitRowsInput = { ...getprofileHitRowsInput, ExclusiveStartKey: exclusiveStartKey };
     }
-    const res = await dynamoDB.query(qInput).promise();
 
-    console.log(JSON.stringify(res));
+    let getprofileHitRowsRes = await dynamoDB.query(getprofileHitRowsInput).promise();
+    let clientRes = { ...getprofileHitRowsRes, totalNumberRows: getRowsCountRes };
+    // console.log(JSON.stringify(res));
     return {
         statusCode: 200,
-        body: JSON.stringify(res),
+        body: JSON.stringify(clientRes),
+        headers: {
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
+        },
     };
 }
 
 export const lambdaHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
     try {
-        console.log(event);
+        // console.log(event);
 
         const method = event.httpMethod;
         if (!['POST', 'GET'].includes(event.httpMethod)) {

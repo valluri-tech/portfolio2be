@@ -144,8 +144,7 @@ Resources:
 
 # Step 1 : Create a custom domain name
 #   &
-# step 2 : Configure an Api mapping to the 'prod' stage
-
+# Step 2 : Configure an Api mapping to the 'prod' stage
 # Creation of this AWS::ApiGateway::DomainName takes time.
   PortfolioAPIGWCustomDN:
     Type: AWS::ApiGateway::DomainName
