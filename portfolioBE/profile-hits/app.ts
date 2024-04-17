@@ -24,17 +24,20 @@ const dynamoDB = new DynamoDB({});
  *
  */
 
-async function HandlePostRequest(userAgent: string, location: string) {
+async function HandlePostRequest(userAgent: string, location: string, device: string | null) {
     let date = new Date();
     let dateStr = date.toISOString();
 
     let [pkDate, skTime] = ['profileHit', dateStr.replace(/[-:T.]/g, '#').substring(0, dateStr.length - 1)];
-    const Item: PutItemInputAttributeMap = {
+    let Item: PutItemInputAttributeMap = {
         YM: { S: pkDate },
         DHMS: { S: skTime },
         UserAgent: { S: userAgent },
         Location: { S: location },
     };
+    if (device) {
+        Item = { ...Item, Device: { S: device } };
+    }
 
     const TableName = 'portfoliorequests';
     const input: PutItemInput = {
@@ -116,7 +119,9 @@ async function HandleGetRequest(lastEvaluatedKey: any, totalNumberRows: any) {
 
     // Query all the profile hits
     let date = new Date();
+    date.setDate(date.getDate() + 1);
     let dateStr = date.toISOString();
+
     let sk = dateStr.substring(0, dateStr.indexOf('T')).replace(/-/g, '#');
     sk = sk + '#00#00#00#000';
     let getprofileHitRowsInput: QueryInput = {
@@ -128,6 +133,7 @@ async function HandleGetRequest(lastEvaluatedKey: any, totalNumberRows: any) {
             ':v2': { S: sk },
         },
         Limit: 2,
+        ScanIndexForward: false,
     };
 
     if (lastEvaluatedKey) {
@@ -165,7 +171,14 @@ export const lambdaHandler = async (event: APIGatewayProxyEvent): Promise<APIGat
             case 'POST':
                 const userAgent = event?.requestContext?.identity?.userAgent || '';
                 const location = event?.requestContext?.identity?.sourceIp || '';
-                return await HandlePostRequest(userAgent, location);
+                let device = null;
+                // if(event?.multiValueHeaders?.){
+                //     device = 'Desktop'
+                // }
+                // event?.multiValueHeaders?['CloudFront-Is-Mobile-Viewer'][0] === 'true' && (device = 'Mobile');
+                // event?.multiValueHeaders?['CloudFront-Is-SmartTV-Viewer'][0] === 'true' && (device = 'SmartTV');
+                // event?.multiValueHeaders?['CloudFront-Is-Tablet-Viewer'][0] === 'true' && (device = 'Tablet');
+                return await HandlePostRequest(userAgent, location, device);
             case 'GET':
                 let LastEvaluatedKey = null;
                 let totalNumberRows = null;
