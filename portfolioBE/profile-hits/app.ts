@@ -59,7 +59,6 @@ async function HandlePostRequest(userAgent: string, location: string, device: st
             console.log('ERROR');
             console.log(err);
         });
-    console.log(profileHitRes);
     const UpdateItemObj: UpdateItemInput = {
         TableName,
         Key: { YM: { S: 'MetaData' }, DHMS: { S: 'NumRows' } },
@@ -132,7 +131,7 @@ async function HandleGetRequest(lastEvaluatedKey: any, totalNumberRows: any) {
             ':v1': { S: 'profileHit' },
             ':v2': { S: sk },
         },
-        Limit: 2,
+        Limit: 5,
         ScanIndexForward: false,
     };
 
